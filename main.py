@@ -16,10 +16,10 @@ from knowledge import UdoCatalogKnowledge
 knowledge = UdoCatalogKnowledge()
 
 # Configuration
-GCP_PROJECT = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or ""
-GCP_LOCATION = os.getenv("GCP_LOCATION", "asia-southeast1")
+GCP_PROJECT = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "project-de5847cd-022d-40ca-ad7"
+VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "global")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 app = FastAPI(
     title="UDO AI Overview Service",
@@ -105,71 +105,50 @@ def build_system_instruction(retrieved_context: str) -> str:
 
 def query_gemini_api(query: str, system_prompt: str) -> Optional[dict]:
     """
-    Call Gemini via google-generativeai with API Key or Vertex AI.
+    Call Gemini via google-genai Client on Vertex AI (location='global').
+    Preserves original system instruction and JSON schema completely.
     """
-    # 1. Try google-generativeai API Key
-    if GEMINI_API_KEY:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel(
-                model_name=MODEL_NAME,
-                system_instruction=system_prompt,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "temperature": 0.25,
-                    "max_output_tokens": 2048,
-                }
-            )
-            response = model.generate_content(
-                f"ให้ข้อมูลสรุปภาพรวมเกี่ยวกับ: {query} โดยละเอียด อธิบายเข้าใจง่าย ถูกต้องตามหลักการทางวิศวกรรมงานเชื่อม"
-            )
-            if response and response.text:
-                return json.loads(response.text)
-        except Exception as e:
-            print(f"Error calling Gemini with API Key: {e}")
+    try:
+        from google import genai
+        from google.genai import types
 
-    # 2. Try Google Cloud Vertex AI REST API (Pure REST via Cloud Run Service Account Token)
-    if GCP_PROJECT:
-        try:
-            import requests
-            token_resp = requests.get(
-                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-                headers={"Metadata-Flavor": "Google"},
-                timeout=2.0
+        client = None
+        if GCP_PROJECT:
+            client = genai.Client(vertexai=True, project=GCP_PROJECT, location=VERTEX_LOCATION)
+        elif GEMINI_API_KEY:
+            client = genai.Client(api_key=GEMINI_API_KEY)
+
+        if client:
+            config_kwargs = {
+                "system_instruction": system_prompt,
+                "response_mime_type": "application/json",
+                "temperature": 0.25,
+            }
+            if "thinking" in MODEL_NAME.lower():
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=-1)
+
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=f"ให้ข้อมูลสรุปภาพรวมเกี่ยวกับ: {query} โดยละเอียด อธิบายเข้าใจง่าย ถูกต้องตามหลักการทางวิศวกรรมงานเชื่อม",
+                config=types.GenerateContentConfig(**config_kwargs)
             )
-            if token_resp.status_code == 200:
-                access_token = token_resp.json().get("access_token")
-                endpoint = f"https://{GCP_LOCATION}-aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}/locations/{GCP_LOCATION}/publishers/google/models/{MODEL_NAME}:generateContent"
-                headers = {
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "systemInstruction": {
-                        "parts": [{"text": system_prompt}]
-                    },
-                    "contents": [
-                        {"role": "user", "parts": [{"text": f"ให้ข้อมูลสรุปภาพรวมเกี่ยวกับ: {query} โดยละเอียด อธิบายเข้าใจง่าย ถูกต้องตามหลักการทางวิศวกรรมงานเชื่อม"}]}
-                    ],
-                    "generationConfig": {
-                        "responseMimeType": "application/json",
-                        "temperature": 0.25,
-                        "maxOutputTokens": 2048
-                    }
-                }
-                api_resp = requests.post(endpoint, headers=headers, json=payload, timeout=20.0)
-                if api_resp.status_code == 200:
-                    result = api_resp.json()
-                    candidates = result.get("candidates", [])
-                    if candidates:
-                        raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                        if raw_text:
-                            return json.loads(raw_text)
-                else:
-                    print(f"Vertex AI REST Error {api_resp.status_code}: {api_resp.text}")
-        except Exception as e:
-            print(f"Error calling Vertex AI REST: {e}")
+
+            result_text = response.text or "{}"
+            result_text = result_text.strip()
+            if result_text.startswith("```json"):
+                result_text = result_text[7:]
+            if result_text.startswith("```"):
+                result_text = result_text[3:]
+            if result_text.endswith("```"):
+                result_text = result_text[:-3]
+
+            parsed = json.loads(result_text.strip(), strict=False)
+            if isinstance(parsed, dict):
+                return parsed
+            elif isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+                return parsed[0]
+    except Exception as e:
+        print(f"Error calling Gemini with google-genai: {e}")
 
     return None
 

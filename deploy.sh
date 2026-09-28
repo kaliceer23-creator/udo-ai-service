@@ -23,10 +23,13 @@ gcloud run deploy "${SERVICE_NAME}" \
   --source . \
   --region "${REGION}" \
   --allow-unauthenticated \
+  --service-account "captrans-translator@project-de5847cd-022d-40ca-ad7.iam.gserviceaccount.com" \
   --min-instances 0 \
   --max-instances 4 \
-  --memory 512Mi \
+  --memory 1Gi \
   --cpu 1 \
-  --timeout 30s
+  --timeout 60s \
+  --set-env-vars "GCP_PROJECT=project-de5847cd-022d-40ca-ad7,VERTEX_LOCATION=global,GOOGLE_GENAI_USE_ENTERPRISE=True,GEMINI_MODEL=gemini-2.0-flash" \
+  --quiet
 
 echo "Deployment process finished."
