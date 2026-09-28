@@ -19,7 +19,7 @@ knowledge = UdoCatalogKnowledge()
 GCP_PROJECT = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "project-de5847cd-022d-40ca-ad7"
 VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "global")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 app = FastAPI(
     title="UDO AI Overview Service",
@@ -122,10 +122,9 @@ def query_gemini_api(query: str, system_prompt: str) -> Optional[dict]:
             config_kwargs = {
                 "system_instruction": system_prompt,
                 "response_mime_type": "application/json",
-                "temperature": 0.25,
             }
-            if "thinking" in MODEL_NAME.lower():
-                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=-1)
+            if "gemini" in MODEL_NAME.lower():
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="medium")
 
             response = client.models.generate_content(
                 model=MODEL_NAME,

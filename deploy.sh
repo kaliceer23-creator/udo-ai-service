@@ -29,7 +29,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --memory 1Gi \
   --cpu 1 \
   --timeout 60s \
-  --set-env-vars "GCP_PROJECT=project-de5847cd-022d-40ca-ad7,VERTEX_LOCATION=global,GOOGLE_GENAI_USE_ENTERPRISE=True,GEMINI_MODEL=gemini-2.0-flash" \
+  --set-env-vars "GCP_PROJECT=project-de5847cd-022d-40ca-ad7,VERTEX_LOCATION=global,GOOGLE_GENAI_USE_ENTERPRISE=True,GEMINI_MODEL=gemini-3.8-flash" \
   --quiet
 
 echo "Deployment process finished."
