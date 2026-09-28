@@ -129,29 +129,47 @@ def query_gemini_api(query: str, system_prompt: str) -> Optional[dict]:
         except Exception as e:
             print(f"Error calling Gemini with API Key: {e}")
 
-    # 2. Try Google Cloud Vertex AI SDK
+    # 2. Try Google Cloud Vertex AI REST API (Pure REST via Cloud Run Service Account Token)
     if GCP_PROJECT:
         try:
-            import vertexai
-            from vertexai.generative_models import GenerativeModel, GenerationConfig
-            vertexai.init(project=GCP_PROJECT, location=GCP_LOCATION)
-            model = GenerativeModel(
-                model_name=MODEL_NAME,
-                system_instruction=[system_prompt]
+            import requests
+            token_resp = requests.get(
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+                headers={"Metadata-Flavor": "Google"},
+                timeout=2.0
             )
-            config = GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.25,
-                max_output_tokens=2048
-            )
-            response = model.generate_content(
-                f"ให้ข้อมูลสรุปภาพรวมเกี่ยวกับ: {query} โดยละเอียด อธิบายเข้าใจง่าย ถูกต้องตามหลักการทางวิศวกรรมงานเชื่อม",
-                generation_config=config
-            )
-            if response and response.text:
-                return json.loads(response.text)
+            if token_resp.status_code == 200:
+                access_token = token_resp.json().get("access_token")
+                endpoint = f"https://{GCP_LOCATION}-aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}/locations/{GCP_LOCATION}/publishers/google/models/{MODEL_NAME}:generateContent"
+                headers = {
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "systemInstruction": {
+                        "parts": [{"text": system_prompt}]
+                    },
+                    "contents": [
+                        {"role": "user", "parts": [{"text": f"ให้ข้อมูลสรุปภาพรวมเกี่ยวกับ: {query} โดยละเอียด อธิบายเข้าใจง่าย ถูกต้องตามหลักการทางวิศวกรรมงานเชื่อม"}]}
+                    ],
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "temperature": 0.25,
+                        "maxOutputTokens": 2048
+                    }
+                }
+                api_resp = requests.post(endpoint, headers=headers, json=payload, timeout=20.0)
+                if api_resp.status_code == 200:
+                    result = api_resp.json()
+                    candidates = result.get("candidates", [])
+                    if candidates:
+                        raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                        if raw_text:
+                            return json.loads(raw_text)
+                else:
+                    print(f"Vertex AI REST Error {api_resp.status_code}: {api_resp.text}")
         except Exception as e:
-            print(f"Error calling Vertex AI: {e}")
+            print(f"Error calling Vertex AI REST: {e}")
 
     return None
 
